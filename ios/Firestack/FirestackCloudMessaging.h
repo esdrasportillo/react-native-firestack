@@ -10,9 +10,9 @@
 #define FirestackCloudMessaging_h
 
 #import "Firebase.h"
-#import <React/RCTEventEmitter.h>
-#import <React/RCTBridgeModule.h>
-#import <React/RCTUtils.h>
+#import "RCTEventEmitter.h"
+#import "RCTBridgeModule.h"
+#import "RCTUtils.h"
 
 @interface FirestackCloudMessaging : RCTEventEmitter <RCTBridgeModule> {
     

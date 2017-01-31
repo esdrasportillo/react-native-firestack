@@ -21,8 +21,6 @@
 @property FIRDatabaseHandle childRemovedHandler;
 @property FIRDatabaseHandle childMovedHandler;
 @property FIRDatabaseHandle childValueHandler;
-+ (NSDictionary *) snapshotToDict:(FIRDataSnapshot *) snapshot;
-
 @end
 
 @implementation FirestackDBReference
@@ -44,25 +42,18 @@
   return self;
 }
 
-- (NSString *) absPath:(FIRDatabaseReference *) ref {
-    NSString *url = ref.URL;
-    NSString *rooturl = ref.root.URL;
-    return [[url substringFromIndex:rooturl.length] stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
-}
-
 - (void) addEventHandler:(NSString *) eventName
 {
     if (![self isListeningTo:eventName]) {
         id withBlock = ^(FIRDataSnapshot * _Nonnull snapshot) {
-            NSDictionary *props = [FirestackDBReference snapshotToDict:snapshot];
+            NSDictionary *props = [self snapshotToDict:snapshot];
             [self sendJSEvent:DATABASE_DATA_EVENT
                         title:eventName
                         props: @{
                                  @"eventName": eventName,
-                                 @"path": [self absPath:[snapshot ref]],
+                                 @"path": _path,
                                  @"modifiersString": _modifiersString,
-                                 @"snapshot": props,
-                                 @"handlePath": _path
+                                 @"snapshot": props
                                  }];
         };
         id errorBlock = ^(NSError * _Nonnull error) {
@@ -82,15 +73,13 @@
 }
 
 - (void) addSingleEventHandler:(RCTResponseSenderBlock) callback
-                        ofType:(NSString *) type
 {
-    int eventType = [self eventTypeFromName:type];
-    [_query observeSingleEventOfType:eventType
+    [_query observeSingleEventOfType:FIRDataEventTypeValue
                            withBlock:^(FIRDataSnapshot * _Nonnull snapshot) {
-                               NSDictionary *props = [FirestackDBReference snapshotToDict:snapshot];
+                               NSDictionary *props = [self snapshotToDict:snapshot];
                                callback(@[[NSNull null], @{
-                                              @"eventName": type,
-                                              @"path": [self absPath:[snapshot ref]],
+                                              @"eventName": @"value",
+                                              @"path": _path,
                                               @"modifiersString": _modifiersString,
                                               @"snapshot": props
                                               }]);
@@ -144,7 +133,7 @@
     [self unsetListeningOn:name];
 }
 
-+ (NSDictionary *) snapshotToDict:(FIRDataSnapshot *) snapshot
+- (NSDictionary *) snapshotToDict:(FIRDataSnapshot *) snapshot
 {
     NSMutableDictionary *dict = [[NSMutableDictionary alloc] init];
     [dict setValue:snapshot.key forKey:@"key"];
@@ -379,8 +368,6 @@ RCT_EXPORT_MODULE(FirestackDatabase);
     self = [super init];
     if (self != nil) {
         _dbReferences = [[NSMutableDictionary alloc] init];
-        _transactions = [[NSMutableDictionary alloc] init];
-        _transactionQueue = dispatch_queue_create("com.fullstackreact.react-native-firestack", DISPATCH_QUEUE_CONCURRENT);
     }
     return self;
 }
@@ -414,17 +401,6 @@ RCT_EXPORT_METHOD(set:(NSString *) path
     FIRDatabaseReference *ref = [self getPathRef:path];
     [ref setValue:[data valueForKey:@"value"] withCompletionBlock:^(NSError * _Nullable error, FIRDatabaseReference * _Nonnull ref) {
         [self handleCallback:@"set" callback:callback databaseError:error];
-    }];
-}
-
-RCT_EXPORT_METHOD(setWithPriority:(NSString *) path
-                  data:(NSDictionary *)data
-                  priority: (NSDictionary *)priority
-                  callback:(RCTResponseSenderBlock) callback)
-{
-    FIRDatabaseReference *ref = [self getPathRef:path];
-    [ref setValue:[data valueForKey:@"value"] andPriority:[priority valueForKey:@"value"] withCompletionBlock:^(NSError * _Nullable error, FIRDatabaseReference * _Nonnull ref) {
-        [self handleCallback:@"setWithPriority" callback:callback databaseError:error];
     }];
 }
 
@@ -483,85 +459,7 @@ RCT_EXPORT_METHOD(push:(NSString *) path
     }
 }
 
-RCT_EXPORT_METHOD(beginTransaction:(NSString *) path
-                  withIdentifier:(NSString *) identifier
-                  applyLocally:(BOOL) applyLocally
-                  onComplete:(RCTResponseSenderBlock) onComplete)
-{
-    dispatch_async(_transactionQueue, ^{
-        NSMutableDictionary *transactionState = [NSMutableDictionary new];
-        
-        dispatch_semaphore_t sema = dispatch_semaphore_create(0);
-        [transactionState setObject:sema forKey:@"semaphore"];
-        
-        FIRDatabaseReference *ref = [self getPathRef:path];
-        [ref runTransactionBlock:^FIRTransactionResult * _Nonnull(FIRMutableData * _Nonnull currentData) {
-            dispatch_barrier_async(_transactionQueue, ^{
-                [_transactions setValue:transactionState forKey:identifier];
-                [self sendEventWithName:DATABASE_TRANSACTION_EVENT
-                                   body:@{
-                                          @"id": identifier,
-                                          @"originalValue": currentData.value
-                                          }];
-            });
-            // Wait for the event handler to call tryCommitTransaction
-            // WARNING: This wait occurs on the Firebase Worker Queue
-            // so if tryCommitTransaction fails to signal the semaphore
-            // no further blocks will be executed by Firebase until the timeout expires
-            dispatch_time_t delayTime = dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC);
-            BOOL timedout = dispatch_semaphore_wait(sema, delayTime) != 0;
-            BOOL abort = [transactionState valueForKey:@"abort"] || timedout;
-            id value = [transactionState valueForKey:@"value"];
-            dispatch_barrier_async(_transactionQueue, ^{
-                [_transactions removeObjectForKey:identifier];
-            });
-            if (abort) {
-                return [FIRTransactionResult abort];
-            } else {
-                currentData.value = value;
-                return [FIRTransactionResult successWithValue:currentData];
-            }
-        } andCompletionBlock:^(NSError * _Nullable databaseError, BOOL committed, FIRDataSnapshot * _Nullable snapshot) {
-            if (databaseError != nil) {
-                NSDictionary *evt = @{
-                                      @"errorCode": [NSNumber numberWithInt:[databaseError code]],
-                                      @"errorDetails": [databaseError debugDescription],
-                                      @"description": [databaseError description]
-                                      };
-                onComplete(@[evt]);
-            } else {
-                onComplete(@[[NSNull null], @{
-                               @"committed": [NSNumber numberWithBool:committed],
-                               @"snapshot": [FirestackDBReference snapshotToDict:snapshot],
-                               @"status": @"success",
-                               @"method": @"transaction"
-                               }]);
-            }
-        } withLocalEvents:applyLocally];
-    });
-}
 
-RCT_EXPORT_METHOD(tryCommitTransaction:(NSString *) identifier
-                  withData:(NSDictionary *) data
-                  orAbort:(BOOL) abort)
-{
-    __block NSMutableDictionary *transactionState;
-    dispatch_sync(_transactionQueue, ^{
-        transactionState = [_transactions objectForKey: identifier];
-    });
-    if (!transactionState) {
-        NSLog(@"tryCommitTransaction for unknown ID %@", identifier);
-        return;
-    }
-    dispatch_semaphore_t sema = [transactionState valueForKey:@"semaphore"];
-    if (abort) {
-        [transactionState setValue:@true forKey:@"abort"];
-    } else {
-        id newValue = [data valueForKey:@"value"];
-        [transactionState setValue:newValue forKey:@"value"];
-    }
-    dispatch_semaphore_signal(sema);
-}
 
 RCT_EXPORT_METHOD(on:(NSString *) path
                   modifiersString:(NSString *) modifiersString
@@ -584,7 +482,7 @@ RCT_EXPORT_METHOD(onOnce:(NSString *) path
                 callback:(RCTResponseSenderBlock) callback)
 {
     FirestackDBReference *ref = [self getDBHandle:path modifiers:modifiers modifiersString:modifiersString];
-    [ref addSingleEventHandler:callback ofType:name];
+    [ref addSingleEventHandler:callback];
 }
 
 RCT_EXPORT_METHOD(off:(NSString *)path
@@ -720,7 +618,7 @@ RCT_EXPORT_METHOD(goOnline)
 
 // Not sure how to get away from this... yet
 - (NSArray<NSString *> *)supportedEvents {
-    return @[DATABASE_DATA_EVENT, DATABASE_ERROR_EVENT, DATABASE_TRANSACTION_EVENT];
+    return @[DATABASE_DATA_EVENT, DATABASE_ERROR_EVENT];
 }
 
 

@@ -9,7 +9,7 @@
 #ifndef FirestackAnalytics_h
 #define FirestackAnalytics_h
 
-#import <React/RCTBridgeModule.h>
+#import "RCTBridgeModule.h"
 
 @interface FirestackAnalytics : NSObject <RCTBridgeModule> {
     

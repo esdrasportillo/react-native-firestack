@@ -8,9 +8,9 @@
 #define Firestack_h
 
 #import <UIKit/UIKit.h>
-#import <React/RCTBridgeModule.h>
-#import <React/RCTEventDispatcher.h>
-#import <React/RCTEventEmitter.h>
+#import "RCTBridgeModule.h"
+#import "RCTEventDispatcher.h"
+#import "RCTEventEmitter.h"
 
 @interface Firestack : RCTEventEmitter <RCTBridgeModule> {
 }
