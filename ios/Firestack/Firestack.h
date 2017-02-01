@@ -19,7 +19,6 @@
 + (void) setup:(UIApplication *) application 
 withLaunchOptions: (NSDictionary *) launchOptions;
 
-+ (void) reloadFirestack;
 + (id) sharedInstance;
 
 - (void) debugLog:(NSString *)title
