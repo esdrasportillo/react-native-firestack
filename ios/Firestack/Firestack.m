@@ -65,15 +65,6 @@ withLaunchOptions: (NSDictionary *) launchOptions
     return _sharedInstance;
 }
 
-+ (void) reloadFirestack
-{
-    // Reloading firestack
-    onceToken = 0; // not sure if this is a good idea or a bad idea...
-    [[Firestack sharedInstance] debugLog:@"Firestack"
-                                     msg:@"Reloading firestack"];
-    _sharedInstance = nil;
-}
-
 - (FIRApp *) firebaseApp
 {
     return [FIRApp defaultApp];
