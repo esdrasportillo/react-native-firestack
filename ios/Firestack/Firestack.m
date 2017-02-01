@@ -51,13 +51,8 @@ withLaunchOptions: (NSDictionary *) launchOptions
 + (void) initializeFirestack:(Firestack *) instance
 {
     dispatch_once(&onceToken, ^{
-        _sharedInstance = instance;
-        
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(reloadFirestack)
-                                                     name:RCTReloadNotification
-                                                   object:nil];
-        
+        _sharedInstance = instance;        
+     
         [[NSNotificationCenter defaultCenter]
          postNotificationName:kFirestackInitialized
          object:nil];
