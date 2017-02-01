@@ -376,10 +376,13 @@ RCT_EXPORT_METHOD(enablePersistence:(BOOL) enable
   callback:(RCTResponseSenderBlock) callback)
 {
 
-  [FIRDatabase database].persistenceEnabled = enable;
-  callback(@[[NSNull null], @{
-                 @"result": @"success"
-                 }]);
+    BOOL isEnabled = [FIRDatabase database].persistenceEnabled;
+    if ( isEnabled != enable) {
+        [FIRDatabase database].persistenceEnabled = enable;
+    }
+    callback(@[[NSNull null], @{
+          @"result": @"success"
+        }]);
 }
 
 RCT_EXPORT_METHOD(keepSynced:(NSString *) path
