@@ -73,10 +73,13 @@ class MyComponent extends Component {
 ### Reading data
 
 Firstack allows the database instance to [persist on disk](https://firebase.google.com/docs/database/android/offline-capabilities) if enabled.
-To enable database persistence, call the following method before calls are made:
+To enable database persistence, pass the configuration option `persistence` before calls are made:
 
 ```javascript
-firestack.database().setPersistence(true);
+const configurationOptions = {
+  persistence: true
+};
+const firestack = new Firestack(configurationOptions);
 ```
 
 Any subsequent calls to Firebase stores the data for the ref on disk.
